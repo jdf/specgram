@@ -27,7 +27,7 @@ find_package(SndFile CONFIG REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(cairo REQUIRED IMPORTED_TARGET cairo)
 
-add_executable(specgram src/main.cpp)
+add_executable(specgram src/main.cc)
 target_link_libraries(specgram PRIVATE
     kfr
     kfr_dft
