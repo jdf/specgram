@@ -26,14 +26,22 @@ uint32_t colormap(const Palette& palette, float t) {
            lerp(palette.ramp[i].b, palette.ramp[i + 1].b);
 }
 
-// Renders the dB grid at native resolution (one pixel per STFT cell),
-// low frequencies at the bottom.
+// Renders the dB grid into num_cols columns (one pixel per column and bin),
+// low frequencies at the bottom. When the grid has more frames than columns,
+// each column takes the per-bin max of its frames, preserving transients.
+// Returns nullptr on failure.
 cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, size_t num_bins,
-                              const Palette& palette) {
+                              size_t num_cols, const Palette& palette) {
     float peak = *std::max_element(db.begin(), db.end());
 
     cairo_surface_t* surface = cairo_image_surface_create(
-        CAIRO_FORMAT_RGB24, static_cast<int>(num_frames), static_cast<int>(num_bins));
+        CAIRO_FORMAT_RGB24, static_cast<int>(num_cols), static_cast<int>(num_bins));
+    if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+        std::fprintf(stderr, "error: cannot create %zux%zu spectrogram surface: %s\n", num_cols,
+                     num_bins, cairo_status_to_string(cairo_surface_status(surface)));
+        cairo_surface_destroy(surface);
+        return nullptr;
+    }
     cairo_surface_flush(surface);
     unsigned char* data = cairo_image_surface_get_data(surface);
     int stride = cairo_image_surface_get_stride(surface);
@@ -41,8 +49,13 @@ cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, s
     for (size_t y = 0; y < num_bins; ++y) {
         auto* row = reinterpret_cast<uint32_t*>(data + y * stride);
         size_t bin = num_bins - 1 - y;
-        for (size_t x = 0; x < num_frames; ++x) {
-            float t = 1.0f + (db[x * num_bins + bin] - peak) / kDynamicRangeDb;
+        for (size_t x = 0; x < num_cols; ++x) {
+            size_t begin = x * num_frames / num_cols;
+            size_t end = std::max(begin + 1, (x + 1) * num_frames / num_cols);
+            float value = db[begin * num_bins + bin];
+            for (size_t f = begin + 1; f < end; ++f)
+                value = std::max(value, db[f * num_bins + bin]);
+            float t = 1.0f + (value - peak) / kDynamicRangeDb;
             row[x] = colormap(palette, t);
         }
     }
@@ -132,17 +145,26 @@ const Palette* find_palette(const char* name) {
 bool render_png(const std::vector<float>& db, size_t num_frames, size_t num_bins,
                 const Layout& layout, const AudioMeta& meta, const Palette& palette,
                 bool timescale, const char* out_path) {
-    cairo_surface_t* cells = render_cells(db, num_frames, num_bins, palette);
+    size_t num_cols = std::min(num_frames, static_cast<size_t>(layout.plot_width()));
+    cairo_surface_t* cells = render_cells(db, num_frames, num_bins, num_cols, palette);
+    if (!cells) return false;
 
     cairo_surface_t* surface =
         cairo_image_surface_create(CAIRO_FORMAT_RGB24, layout.width, layout.height);
+    if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+        std::fprintf(stderr, "error: cannot create %dx%d image surface: %s\n", layout.width,
+                     layout.height, cairo_status_to_string(cairo_surface_status(surface)));
+        cairo_surface_destroy(surface);
+        cairo_surface_destroy(cells);
+        return false;
+    }
     cairo_t* cr = cairo_create(surface);
 
     cairo_set_source_rgb(cr, palette.background.r / 255.0, palette.background.g / 255.0,
                          palette.background.b / 255.0);
     cairo_paint(cr);
 
-    double sx = static_cast<double>(layout.plot_width()) / static_cast<double>(num_frames);
+    double sx = static_cast<double>(layout.plot_width()) / static_cast<double>(num_cols);
     double sy = static_cast<double>(layout.plot_height()) / static_cast<double>(num_bins);
     cairo_save(cr);
     cairo_translate(cr, layout.plot_x(), layout.plot_y());
