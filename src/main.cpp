@@ -56,12 +56,16 @@ struct Rgb {
 struct Palette {
     const char* name;
     Rgb background;
+    Rgb axis;   // baseline and ticks
+    Rgb label;  // muted text
     std::vector<Rgb> ramp;
 };
 
 const std::vector<Palette> kPalettes = {
     {"dark",
      {0x1a, 0x1a, 0x19},
+     {0x38, 0x38, 0x35},
+     {0x89, 0x87, 0x81},
      {{0x1a, 0x1a, 0x19}, {0x0d, 0x36, 0x6b}, {0x10, 0x42, 0x81},
       {0x18, 0x4f, 0x95}, {0x1c, 0x5c, 0xab}, {0x25, 0x6a, 0xbf},
       {0x2a, 0x78, 0xd6}, {0x39, 0x87, 0xe5}, {0x55, 0x98, 0xe7},
@@ -69,6 +73,8 @@ const std::vector<Palette> kPalettes = {
       {0xb7, 0xd3, 0xf6}, {0xcd, 0xe2, 0xfb}}},
     {"light",
      {0xfc, 0xfc, 0xfb},
+     {0xc3, 0xc2, 0xb7},
+     {0x89, 0x87, 0x81},
      {{0xfc, 0xfc, 0xfb}, {0xcd, 0xe2, 0xfb}, {0xb7, 0xd3, 0xf6},
       {0x9e, 0xc5, 0xf4}, {0x86, 0xb6, 0xef}, {0x6d, 0xa7, 0xec},
       {0x55, 0x98, 0xe7}, {0x39, 0x87, 0xe5}, {0x2a, 0x78, 0xd6},
@@ -172,11 +178,60 @@ cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, s
     return surface;
 }
 
+// Draws a baseline along the bottom plot edge with ticks and mm:ss labels.
+// Tick interval escalates 1s -> 10s -> 1min, taking the first that keeps
+// ticks at least 20px apart; labels thin out further to stay readable.
+void draw_timescale(cairo_t* cr, const Layout& layout, const AudioMeta& meta,
+                    const Palette& palette) {
+    constexpr double kMinTickSpacing = 20.0;
+    constexpr double kMinLabelSpacing = 50.0;
+    constexpr int kIntervals[] = {1, 10, 60};
+
+    double px_per_second = layout.plot_width() / meta.duration_seconds;
+    int interval = kIntervals[std::size(kIntervals) - 1];
+    for (int candidate : kIntervals) {
+        if (candidate * px_per_second >= kMinTickSpacing) {
+            interval = candidate;
+            break;
+        }
+    }
+    double spacing = interval * px_per_second;
+    int label_every = std::max(1, static_cast<int>(std::ceil(kMinLabelSpacing / spacing)));
+
+    double baseline_y = layout.plot_y() + layout.plot_height() + 0.5;
+    cairo_set_line_width(cr, 1.0);
+    cairo_set_source_rgb(cr, palette.axis.r / 255.0, palette.axis.g / 255.0,
+                         palette.axis.b / 255.0);
+    cairo_move_to(cr, layout.plot_x(), baseline_y);
+    cairo_line_to(cr, layout.plot_x() + layout.plot_width(), baseline_y);
+    cairo_stroke(cr);
+    for (int t = 0; t <= meta.duration_seconds; t += interval) {
+        double x = std::floor(layout.plot_x() + t * px_per_second) + 0.5;
+        cairo_move_to(cr, x, baseline_y);
+        cairo_line_to(cr, x, baseline_y + 4.0);
+    }
+    cairo_stroke(cr);
+
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 11.0);
+    cairo_set_source_rgb(cr, palette.label.r / 255.0, palette.label.g / 255.0,
+                         palette.label.b / 255.0);
+    for (int t = 0, tick = 0; t <= meta.duration_seconds; t += interval, ++tick) {
+        if (tick % label_every != 0) continue;
+        char text[16];
+        std::snprintf(text, sizeof(text), "%d:%02d", t / 60, t % 60);
+        cairo_text_extents_t ext;
+        cairo_text_extents(cr, text, &ext);
+        double x = layout.plot_x() + t * px_per_second;
+        cairo_move_to(cr, x - ext.width / 2 - ext.x_bearing, baseline_y + 16.0);
+        cairo_show_text(cr, text);
+    }
+}
+
 // Composites the spectrogram into the plot rectangle. Decorations (axes,
 // labels, colorbar) belong here, drawn against `layout` and `meta`.
 bool render_image(cairo_surface_t* cells, const Layout& layout, const AudioMeta& meta,
-                  const Palette& palette, const char* out_path) {
-    (void)meta;  // reserved for axis labels
+                  const Palette& palette, bool timescale, const char* out_path) {
 
     cairo_surface_t* surface =
         cairo_image_surface_create(CAIRO_FORMAT_RGB24, layout.width, layout.height);
@@ -196,6 +251,8 @@ bool render_image(cairo_surface_t* cells, const Layout& layout, const AudioMeta&
     cairo_paint(cr);
     cairo_restore(cr);
 
+    if (timescale) draw_timescale(cr, layout, meta, palette);
+
     cairo_status_t status = cairo_surface_write_to_png(surface, out_path);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
@@ -212,7 +269,7 @@ bool render_image(cairo_surface_t* cells, const Layout& layout, const AudioMeta&
 void print_usage(const char* prog) {
     std::fprintf(stderr,
                  "usage: %s [-p|--palette <name>] [-s|--size <width>x<height>] "
-                 "input.wav [output.png]\n",
+                 "[-t|--timescale] input.wav [output.png]\n",
                  prog);
     std::fprintf(stderr, "palettes:");
     for (const Palette& p : kPalettes)
@@ -223,6 +280,7 @@ void print_usage(const char* prog) {
 int main(int argc, char** argv) {
     const Palette* palette = &kPalettes.front();
     Layout layout;
+    bool timescale = false;
     std::vector<const char*> paths;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -246,6 +304,8 @@ int main(int argc, char** argv) {
             }
             layout.width = w;
             layout.height = h;
+        } else if (arg == "-t" || arg == "--timescale") {
+            timescale = true;
         } else {
             paths.push_back(argv[i]);
         }
@@ -270,7 +330,7 @@ int main(int argc, char** argv) {
     }
 
     cairo_surface_t* cells = render_cells(db, num_frames, num_bins, *palette);
-    bool ok = render_image(cells, layout, meta, *palette, out_path.c_str());
+    bool ok = render_image(cells, layout, meta, *palette, timescale, out_path.c_str());
     cairo_surface_destroy(cells);
     if (!ok) return 1;
 
