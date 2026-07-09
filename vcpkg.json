@@ -1,0 +1,12 @@
+{
+  "name": "specgram",
+  "version": "0.1.0",
+  "dependencies": [
+    "kfr",
+    {
+      "name": "libsndfile",
+      "default-features": false
+    },
+    "cairo"
+  ]
+}
