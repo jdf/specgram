@@ -1,6 +1,6 @@
 """Generate a test WAV: 0->8kHz chirp + 440/2000 Hz tones + a noise burst.
 
-usage: python3 make_test_wav.py [output.wav]
+usage: python3 make_test_wav.py [output.wav [duration_seconds]]
 """
 import math
 import random
@@ -9,7 +9,7 @@ import sys
 import wave
 
 SR = 44100
-DUR = 4.0
+DUR = float(sys.argv[2]) if len(sys.argv) > 2 else 4.0
 N = int(SR * DUR)
 
 samples = []
