@@ -1,5 +1,6 @@
 build/
 vcpkg_installed/
 *.png
+!docs/*.png
 *.wav
 .DS_Store
