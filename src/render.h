@@ -49,10 +49,19 @@ struct Layout {
     int plot_height() const { return plot_height_for(height); }
 };
 
-// Renders the dB grid (as produced by stft_db) to a PNG at out_path,
-// optionally with a timescale along the bottom plot edge.
+// Vertical mapping of frequency to plot rows: equal Hz per row, or equal
+// mel per row (compresses highs, expands the perceptually busy lows).
+enum class FreqScale { kLinear, kMel };
+
+struct RenderOptions {
+    Layout layout;
+    const Palette* palette = &kPalettes.front();
+    bool timescale = false;
+    FreqScale freq_scale = FreqScale::kLinear;
+};
+
+// Renders the dB grid (as produced by stft_db) to a PNG at out_path.
 bool render_png(const std::vector<float>& db, size_t num_frames, size_t num_bins,
-                const Layout& layout, const AudioMeta& meta, const Palette& palette,
-                bool timescale, const char* out_path);
+                const AudioMeta& meta, const RenderOptions& opts, const char* out_path);
 
 }  // namespace specgram

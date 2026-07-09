@@ -12,6 +12,9 @@ namespace {
 
 constexpr float kDynamicRangeDb = 80.0f;
 
+float hz_to_mel(float hz) { return 2595.0f * std::log10(1.0f + hz / 700.0f); }
+float mel_to_hz(float mel) { return 700.0f * (std::pow(10.0f, mel / 2595.0f) - 1.0f); }
+
 // Map t in [0,1] (0 = silence, 1 = peak energy) onto the palette's ramp.
 uint32_t colormap(const Palette& palette, float t) {
     int n = static_cast<int>(palette.ramp.size());
@@ -26,19 +29,20 @@ uint32_t colormap(const Palette& palette, float t) {
            lerp(palette.ramp[i].b, palette.ramp[i + 1].b);
 }
 
-// Renders the dB grid into num_cols columns (one pixel per column and bin),
-// low frequencies at the bottom. When the grid has more frames than columns,
-// each column takes the per-bin max of its frames, preserving transients.
-// Returns nullptr on failure.
+// Renders the dB grid into a num_cols x num_rows image, row 0 = highest
+// frequency. Each pixel takes the max over the frames and bins it covers,
+// preserving transients; linear rows map 1:1 onto bins, mel rows each cover
+// an equal slice of the mel range. Returns nullptr on failure.
 cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, size_t num_bins,
-                              size_t num_cols, const Palette& palette) {
+                              size_t num_cols, size_t num_rows, int sample_rate,
+                              FreqScale freq_scale, const Palette& palette) {
     float peak = *std::max_element(db.begin(), db.end());
 
     cairo_surface_t* surface = cairo_image_surface_create(
-        CAIRO_FORMAT_RGB24, static_cast<int>(num_cols), static_cast<int>(num_bins));
+        CAIRO_FORMAT_RGB24, static_cast<int>(num_cols), static_cast<int>(num_rows));
     if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
         std::fprintf(stderr, "error: cannot create %zux%zu spectrogram surface: %s\n", num_cols,
-                     num_bins, cairo_status_to_string(cairo_surface_status(surface)));
+                     num_rows, cairo_status_to_string(cairo_surface_status(surface)));
         cairo_surface_destroy(surface);
         return nullptr;
     }
@@ -46,15 +50,29 @@ cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, s
     unsigned char* data = cairo_image_surface_get_data(surface);
     int stride = cairo_image_surface_get_stride(surface);
 
-    for (size_t y = 0; y < num_bins; ++y) {
+    float hz_per_bin = 0.5f * sample_rate / static_cast<float>(num_bins - 1);
+    float mel_max = hz_to_mel(0.5f * sample_rate);
+
+    for (size_t y = 0; y < num_rows; ++y) {
         auto* row = reinterpret_cast<uint32_t*>(data + y * stride);
-        size_t bin = num_bins - 1 - y;
+        size_t bin_lo, bin_hi;
+        if (freq_scale == FreqScale::kMel) {
+            float f_lo = mel_to_hz(mel_max * (num_rows - 1 - y) / num_rows);
+            float f_hi = mel_to_hz(mel_max * (num_rows - y) / num_rows);
+            bin_lo = std::min(static_cast<size_t>(f_lo / hz_per_bin), num_bins - 1);
+            bin_hi = std::clamp(static_cast<size_t>(std::ceil(f_hi / hz_per_bin)), bin_lo + 1,
+                                num_bins);
+        } else {
+            bin_lo = num_bins - 1 - y;
+            bin_hi = bin_lo + 1;
+        }
         for (size_t x = 0; x < num_cols; ++x) {
             size_t begin = x * num_frames / num_cols;
             size_t end = std::max(begin + 1, (x + 1) * num_frames / num_cols);
-            float value = db[begin * num_bins + bin];
-            for (size_t f = begin + 1; f < end; ++f)
-                value = std::max(value, db[f * num_bins + bin]);
+            float value = db[begin * num_bins + bin_lo];
+            for (size_t f = begin; f < end; ++f)
+                for (size_t b = bin_lo; b < bin_hi; ++b)
+                    value = std::max(value, db[f * num_bins + b]);
             float t = 1.0f + (value - peak) / kDynamicRangeDb;
             row[x] = colormap(palette, t);
         }
@@ -143,10 +161,16 @@ const Palette* find_palette(const char* name) {
 }
 
 bool render_png(const std::vector<float>& db, size_t num_frames, size_t num_bins,
-                const Layout& layout, const AudioMeta& meta, const Palette& palette,
-                bool timescale, const char* out_path) {
+                const AudioMeta& meta, const RenderOptions& opts, const char* out_path) {
+    const Layout& layout = opts.layout;
+    const Palette& palette = *opts.palette;
+
     size_t num_cols = std::min(num_frames, static_cast<size_t>(layout.plot_width()));
-    cairo_surface_t* cells = render_cells(db, num_frames, num_bins, num_cols, palette);
+    size_t num_rows = opts.freq_scale == FreqScale::kMel
+                          ? static_cast<size_t>(layout.plot_height())
+                          : num_bins;
+    cairo_surface_t* cells = render_cells(db, num_frames, num_bins, num_cols, num_rows,
+                                          meta.sample_rate, opts.freq_scale, palette);
     if (!cells) return false;
 
     cairo_surface_t* surface =
@@ -165,7 +189,7 @@ bool render_png(const std::vector<float>& db, size_t num_frames, size_t num_bins
     cairo_paint(cr);
 
     double sx = static_cast<double>(layout.plot_width()) / static_cast<double>(num_cols);
-    double sy = static_cast<double>(layout.plot_height()) / static_cast<double>(num_bins);
+    double sy = static_cast<double>(layout.plot_height()) / static_cast<double>(num_rows);
     cairo_save(cr);
     cairo_translate(cr, layout.plot_x(), layout.plot_y());
     cairo_scale(cr, sx, sy);
@@ -174,7 +198,7 @@ bool render_png(const std::vector<float>& db, size_t num_frames, size_t num_bins
     cairo_paint(cr);
     cairo_restore(cr);
 
-    if (timescale) draw_timescale(cr, layout, meta, palette);
+    if (opts.timescale) draw_timescale(cr, layout, meta, palette);
 
     cairo_status_t status = cairo_surface_write_to_png(surface, out_path);
     cairo_destroy(cr);
