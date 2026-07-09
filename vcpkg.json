@@ -8,10 +8,7 @@
         "dft"
       ]
     },
-    {
-      "name": "libsndfile",
-      "default-features": false
-    },
+    "libsndfile",
     "cairo"
   ]
 }
