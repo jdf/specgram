@@ -187,10 +187,6 @@ I verified a 400×160 render (spectrogram still reads correctly at that scale), 
 
 One design note: since the STFT rasterizes at native resolution and is scaled into the plot rect, growing the image doesn't add frequency/time detail beyond 686×513 cells for this clip — larger sizes just get smoother interpolation. If you ever want sharper large renders, the knob for that is the FFT size/hop, which could become a flag the same way.
 
-## 🧑 User · +30:06
-
-Let's add an option to render a timescale at the bottom. There should be a tick every second unless the sound is long enough that 1-second ticks are closer than 20 pixels apart, in which case it should move to 10-second ticks followed by 10minute ticks.
-
 ## 🧑 User · +30:16
 
 Let's add an option to render a timescale at the bottom. There should be a tick every second unless the sound is long enough that 1-second ticks are closer than 20 pixels apart, in which case it should move to 10-second ticks followed by 1 minute ticks.
