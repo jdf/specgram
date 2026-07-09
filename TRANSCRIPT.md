@@ -2,7 +2,7 @@
 
 The conversation behind [jdf/specgram](https://github.com/jdf/specgram) — a C++ spectrogram renderer (kfr, libsndfile, cairo) built in one Claude Code session. Dialogue only; commands, tool output, and injected context elided. Timestamps are relative to the start of the session.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +0:00
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +0:00
 
 We're going to write a C++ program to read a wav file and render a small spectrogram of its contents. Let's use cmake with vcpkg for build and deps.
 
@@ -25,7 +25,7 @@ Two adjacent notes while we're picking deps:
 
 So my proposed stack: **CMake + vcpkg, kfr (FFT/windowing), libsndfile (WAV in), cairo (PNG out)**. Want me to scaffold the project with that, or adjust the picks first?
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:20
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:20
 
 Yeah, let's do Cairo with the idea of minimizing the cost of adding decoration later
 
@@ -45,7 +45,7 @@ Autotools installed. Retrying the configure and build in the background:
 
 The build is running in the background (task `bd5edg939`) — vcpkg is now compiling the dependency chain (gperf → fontconfig → cairo, plus kfr and libsndfile), which will take several minutes. I already have the completion notification wired up, and the test WAV (4s: a 0→8 kHz chirp, steady 440 Hz and 2 kHz tones, and a noise burst at 2.0–2.3s) is ready in the scratchpad. When the build lands I'll run it and show you the PNG.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +7:14
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +7:14
 
 Let's set this up as a git-backed jj repo, and make changes incrementally, committing to jj with meaningful commit messages along the way.
 
@@ -81,7 +81,7 @@ The decoration-later design is in place per your earlier ask: [main.cpp](src/mai
 
 Natural next steps if you want them: time/frequency axis ticks with labels, a dB colorbar, log-frequency scaling, or CLI flags for FFT size and image dimensions.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +13:37
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +13:37
 
 Where's the WAV you used to generate that test image?
 
@@ -94,7 +94,7 @@ It's in my session scratchpad, not the project — I generated it with a small P
 
 Note that the scratchpad is session-scoped temp space, so both files will eventually disappear. If you'd like, I can move the generator script into the repo (e.g. `tools/make_test_wav.py`) and commit it so you can regenerate the test signal anytime — that seems more repo-appropriate than committing the 690 KB WAV itself.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +14:52
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +14:52
 
 Yes, please move all auxilliary files used in the generation of test data or any other exploratory work into the repo.
 
@@ -108,7 +108,7 @@ Done. The generator now lives at [tools/make_test_wav.py](tools/make_test_wav.py
 
 I verified the round trip from inside the repo before committing: the script wrote `test.wav`, and `./build/specgram test.wav test.png` rendered it fine. That was the only auxiliary file from the exploratory work — everything else in the scratchpad was generated output. So the repo is now self-contained: anyone can regenerate the test signal and reproduce the verification image with those two commands.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +16:55
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +16:55
 
 Please generate a test wav that will demonstrate rendering of different color values for different frequency energies. Also, the background for these spectrograms should be black by default rather than white, and we should probably have command line arguments to specify palette.
 
@@ -126,7 +126,7 @@ Done, verified, and committed as two changes:
 
 Usage now: `./build/specgram [-p dark|light] input.wav [output.png]`.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +19:31
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +19:31
 
 I just opened the project with VSCode. I hope that the changes won't confuse you.
 
@@ -141,7 +141,7 @@ Two things to know as you work in VS Code alongside me:
 - jj snapshots the working copy automatically on every jj command, so any edits you make in the editor will simply show up in `@` — I'll see them in `jj st` and can fold them into meaningful commits as we go. No conflict with my workflow.
 - If you use the CMake Tools extension, it needs `VCPKG_ROOT` to resolve the preset — either export it in your shell profile (`export VCPKG_ROOT=~/vcpkg`) or let me add a `.vscode/settings.json` with `cmake.environment` set, which I could commit so the editor config travels with the repo. Just say the word.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +21:13
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +21:13
 
 `export VCPKG_ROOT=$HOME/vcpkg` is already in my `.zshrc`. Should it be in a different file?
 
@@ -157,7 +157,7 @@ Rule of thumb: environment variables that define "where things are" (`VCPKG_ROOT
 
 So: fine as-is; move it to `.zshenv` if you want it bulletproof. Separately, note that the repo's `CMakePresets.json` references `$env{VCPKG_ROOT}`, so anyone else cloning this needs the same export — if you'd rather the repo be self-sufficient, I can add a `CMakeUserPresets.json` convention or fall back to a default path, but env-var + preset is the standard vcpkg pattern.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +22:26
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +22:26
 
 Please add the fallback, and I'll move the export into .zshenv
 
@@ -169,7 +169,7 @@ Done and committed. The toolchain resolution now lives in [CMakeLists.txt](CMake
 
 Verified end-to-end with `VCPKG_ROOT` scrubbed from the environment: fresh configure found the toolchain at `~/vcpkg`, the build linked, and the binary still renders. So the repo now works out of the box for you regardless of which zsh file the export lands in, and for anyone whose vcpkg lives in the conventional spot.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +25:48
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +25:48
 
 Please make the output image size configurable
 
@@ -187,7 +187,7 @@ I verified a 400×160 render (spectrogram still reads correctly at that scale), 
 
 One design note: since the STFT rasterizes at native resolution and is scaled into the plot rect, growing the image doesn't add frequency/time detail beyond 686×513 cells for this clip — larger sizes just get smoother interpolation. If you ever want sharper large renders, the knob for that is the FFT size/hop, which could become a flag the same way.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +30:16
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +30:16
 
 Let's add an option to render a timescale at the bottom. There should be a tick every second unless the sound is long enough that 1-second ticks are closer than 20 pixels apart, in which case it should move to 10-second ticks followed by 1 minute ticks.
 
@@ -207,7 +207,7 @@ I verified all three regimes with rendered output (the PNGs are still in the rep
 
 This was also the first real payoff of the decoration design from the start: the feature touched only `render_image` and the palette's chrome colors — the bottom margin and `AudioMeta` (duration) were already waiting for it, and the DSP and cell-rendering code are unchanged.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +32:53
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +32:53
 
 can you render the test image inline here?
 
@@ -221,7 +221,7 @@ Two versions for you:
 
 Both show the current state of the tool's output: dark palette, the 0→8 kHz chirp diagonal, the 440 Hz and 2 kHz tone lines, the noise-burst column at 0:02, and the new one-second timescale ticks along the bottom.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +39:57
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +39:57
 
 Fantastic.
 
@@ -247,7 +247,7 @@ Done, as two commits:
 
 Everything now lives in a `specgram` namespace instead of the anonymous one. I verified the refactor is behavior-preserving the strong way: a fresh `-t` render compares byte-identical (`cmp`) to the pre-refactor `ticks-1s.png`.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +48:18
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +48:18
 
 hmm
 
@@ -271,7 +271,7 @@ The fix has two parts:
 
 A pleasant side effect: long files render faster and look better, since we were previously asking cairo's scaling filter to downsample a 45k-wide image (which it does poorly at extreme ratios) — the max-pool does that job explicitly now. Your render is in `birthday.png` in the repo directory if you want to look at the full result.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +54:44
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +54:44
 
 Can you render the y-axis in Mel-scale?
 
@@ -289,9 +289,9 @@ Verified on both test cases (renders are in the repo dir as `mel-test.png` and `
 
 One thing to flag for later: when we eventually add a frequency axis with labels, the tick generator will need to know about `FreqScale` so labels land at perceptually sensible frequencies (e.g. 100/500/1k/5k/10k) rather than even Hz steps — `RenderOptions` already carries everything it'll need.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +59:34
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +59:34
 
-![mel](mel.webp)
+<img src="docs/mel.webp" alt="docs/jdf" width="320">
 
 Are you familiar with the color palette used in this spectrogram?
 
@@ -309,7 +309,7 @@ It's interesting to compare against what we built: our blue ramp shares the impo
 
 Since palettes are just entries in the `kPalettes` table, adding a `magma` palette would be a small change — sample the standard 256-entry magma curve at a dozen-plus anchor points as ramp entries over a black background. Want me to add it (and optionally `inferno`)?
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:00:37
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:00:37
 
 I would like magma to be the default color scheme; make it so
 
@@ -329,7 +329,7 @@ Verified with two renders (in the repo dir): `levels-magma.png` shows the stairc
 
 One honest caveat: magma is a multi-hue ramp, which departs from the single-hue sequential rule in the design system I used earlier. It's the right call here — perceptual uniformity is magma's whole design, and it's the domain standard you asked for by name — I just didn't want to make the exception silently.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:06:28
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:06:28
 
 Please create a github-suitable README.md, and add an MIT license with my name.
 
@@ -352,7 +352,7 @@ Done, two commits, working copy clean:
 
 One note: the README claims libsndfile reads FLAC/Ogg, but we built libsndfile with `default-features: false`, which strips the external codec libraries — so right now it's really WAV/AIFF/AU and friends. Want me to either fix the README wording or enable the codec features in the manifest (a slower first build, but the claim becomes true)?
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:08:55
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:08:55
 
 Out of curiosity, why did you choose Ninja?
 
@@ -367,7 +367,7 @@ Partly a considered choice, partly reflex — but the considered part goes like 
 
 The genuinely weaker alternatives for this project: Makefiles (fine, just slower and noisier for zero benefit), and Xcode's generator (useful only if you want to live in Xcode; it's a multi-config generator that would complicate the preset). So: defensible reflex, I'd say. If you prefer a different generator — say you want an Xcode project for its profiler — it's a one-line change in `CMakePresets.json`, or a second preset alongside the first.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:11:25
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:11:25
 
 Ah, I didn't know that Ninja is associated so closely with vcpkg. That SGTM.
 
@@ -381,7 +381,7 @@ Done and committed. The manifest now uses libsndfile's default features, which p
 
 Verification: `./build/specgram -t ~/Downloads/exampleogg.ogg` decoded the 6.1-second stereo Vorbis file, mixed it to mono, and produced a correct-looking render — busy low-end, rhythmic transient columns, and the telltale Vorbis high-frequency cutoff near the top of the band. No code changes were needed; libsndfile's API is format-agnostic, so the codec support was purely a build-configuration matter.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:16:44
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:16:44
 
 OK, let's use `gh` to create a new github repo called `jdf/specgram`, then use my existing jj alias `push-main` to push this there.
 
@@ -397,7 +397,7 @@ The flow worked exactly as designed: `gh repo create --source .` created the rep
 
 One small housekeeping note for future pushes: the alias leaves the `main` bookmark tracking `main@origin`, so from here on a plain `jj push-main` after new commits will do the right thing.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:22:05
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:22:05
 
 I would like to share this conversation via a link. Can this be done?
 
@@ -415,7 +415,7 @@ But there are two realistic ways to get an actual *link*, and I can do most of t
 
 The pragmatic recommendation: run `/export specgram-session.txt` in this session, then tell me gist (secret or public) — I'll take it from there. Or if the goal is really "show someone what was built and how," the [GitHub repo](https://github.com/jdf/specgram) with its 19-commit narrative arguably already tells the story.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:24:52
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:24:52
 
 `/export isn't available in this environment.`
 
@@ -434,7 +434,7 @@ Two things to know about sharing it:
 
 If you'd like any editorial changes before sharing — a different title, fuller tool outputs, or the images embedded inline — the transcript regenerates in seconds and republishes to the same URL.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:28:32
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:28:32
 
 Can you please elide anything that wasn't typed by me or shown to me as a response? For example, there's no reason to paste in the contents of the data viz skill, etc.
 
@@ -448,7 +448,7 @@ It's now pure dialogue — 37 KB down from 92 KB. What got elided: all tool call
 
 One editorial consequence to be aware of: because my in-between narration ("Configure passed. Building:") was written to precede tool calls, a few consecutive 🤖 blocks now read as short beats rather than one flowing reply — that's the honest shape of the session once the tools are cut out. If you'd rather I merge consecutive Claude blocks into single messages for smoother reading, that's a two-line change to the generator script.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:29:47
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:29:47
 
 Yes, please merge consecutive Claude blocks
 
@@ -460,7 +460,7 @@ Merged and republished at the same link: **[specgram session transcript](https:/
 
 The version history is preserved on the artifact (initial-transcript → dialogue-only → merged-claude-blocks) if you ever want to compare, and when you're ready to share it, the share control on the artifact page is where you grant access.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:30:41
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:30:41
 
 Actually, can you emit this artifact as TRANSCRIPT.md in the repo, and push it to github?
 
@@ -472,7 +472,7 @@ A nice side effect: this fully solves your original share-via-link question, and
 
 One optional touch: a line in the README pointing to it — something like *"Curious how this was built? The whole conversation is in [TRANSCRIPT.md](TRANSCRIPT.md)."* Say the word and I'll add and push it.
 
-## <img src="jdf.png" alt="jdf" width="24"> jdf · +1:31:54
+## <img src="docs/jdf.png" alt="docs/jdf" width="24"> jdf · +1:31:54
 
 Yes, do that, and can you please add timestamps to each chunk of dialog? They should be relative to the start time.
 
