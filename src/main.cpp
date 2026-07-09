@@ -33,8 +33,10 @@ struct Layout {
 
     int plot_x() const { return margin_left; }
     int plot_y() const { return margin_top; }
-    int plot_width() const { return width - margin_left - margin_right; }
-    int plot_height() const { return height - margin_top - margin_bottom; }
+    int plot_width_for(int w) const { return w - margin_left - margin_right; }
+    int plot_height_for(int h) const { return h - margin_top - margin_bottom; }
+    int plot_width() const { return plot_width_for(width); }
+    int plot_height() const { return plot_height_for(height); }
 };
 
 // Everything the decoration layer will eventually need to label the plot.
@@ -208,7 +210,10 @@ bool render_image(cairo_surface_t* cells, const Layout& layout, const AudioMeta&
 }  // namespace
 
 void print_usage(const char* prog) {
-    std::fprintf(stderr, "usage: %s [-p|--palette <name>] input.wav [output.png]\n", prog);
+    std::fprintf(stderr,
+                 "usage: %s [-p|--palette <name>] [-s|--size <width>x<height>] "
+                 "input.wav [output.png]\n",
+                 prog);
     std::fprintf(stderr, "palettes:");
     for (const Palette& p : kPalettes)
         std::fprintf(stderr, " %s%s", p.name, &p == &kPalettes.front() ? " (default)" : "");
@@ -217,6 +222,7 @@ void print_usage(const char* prog) {
 
 int main(int argc, char** argv) {
     const Palette* palette = &kPalettes.front();
+    Layout layout;
     std::vector<const char*> paths;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -227,6 +233,19 @@ int main(int argc, char** argv) {
                 print_usage(argv[0]);
                 return 2;
             }
+        } else if (arg == "-s" || arg == "--size") {
+            int w = 0, h = 0;
+            if (++i == argc || std::sscanf(argv[i], "%dx%d", &w, &h) != 2 ||
+                layout.plot_width_for(w) < 1 || layout.plot_height_for(h) < 1) {
+                std::fprintf(stderr, "error: size must be <width>x<height> with room for the\n"
+                                     "plot beyond the %dx%d margins, e.g. 880x296\n",
+                             layout.margin_left + layout.margin_right,
+                             layout.margin_top + layout.margin_bottom);
+                print_usage(argv[0]);
+                return 2;
+            }
+            layout.width = w;
+            layout.height = h;
         } else {
             paths.push_back(argv[i]);
         }
@@ -251,7 +270,6 @@ int main(int argc, char** argv) {
     }
 
     cairo_surface_t* cells = render_cells(db, num_frames, num_bins, *palette);
-    Layout layout;
     bool ok = render_image(cells, layout, meta, *palette, out_path.c_str());
     cairo_surface_destroy(cells);
     if (!ok) return 1;
