@@ -47,30 +47,51 @@ struct Rgb {
     uint8_t r, g, b;
 };
 
-// Sequential blue ramp (steps 100..700) anchored on the light chart surface,
-// so near-silence recedes into the background. Perceptually ordered,
-// single-hue, colorblind-safe.
-constexpr Rgb kSurface = {0xfc, 0xfc, 0xfb};
-constexpr Rgb kRamp[] = {
-    kSurface,           {0xcd, 0xe2, 0xfb}, {0xb7, 0xd3, 0xf6},
-    {0x9e, 0xc5, 0xf4}, {0x86, 0xb6, 0xef}, {0x6d, 0xa7, 0xec},
-    {0x55, 0x98, 0xe7}, {0x39, 0x87, 0xe5}, {0x2a, 0x78, 0xd6},
-    {0x25, 0x6a, 0xbf}, {0x1c, 0x5c, 0xab}, {0x18, 0x4f, 0x95},
-    {0x10, 0x42, 0x81}, {0x0d, 0x36, 0x6b},
+// A palette is a chart surface plus a sequential ramp running silence ->
+// peak energy, anchored so silence recedes into the surface. Both are the
+// same single-hue blue ramp (steps 100..700), re-anchored per surface:
+// dark surfaces run toward light blue at peak, light surfaces toward dark.
+struct Palette {
+    const char* name;
+    Rgb background;
+    std::vector<Rgb> ramp;
 };
 
-// Map t in [0,1] (0 = silence, 1 = peak energy) onto the ramp.
-uint32_t colormap(float t) {
-    constexpr int n = static_cast<int>(std::size(kRamp));
+const std::vector<Palette> kPalettes = {
+    {"dark",
+     {0x1a, 0x1a, 0x19},
+     {{0x1a, 0x1a, 0x19}, {0x0d, 0x36, 0x6b}, {0x10, 0x42, 0x81},
+      {0x18, 0x4f, 0x95}, {0x1c, 0x5c, 0xab}, {0x25, 0x6a, 0xbf},
+      {0x2a, 0x78, 0xd6}, {0x39, 0x87, 0xe5}, {0x55, 0x98, 0xe7},
+      {0x6d, 0xa7, 0xec}, {0x86, 0xb6, 0xef}, {0x9e, 0xc5, 0xf4},
+      {0xb7, 0xd3, 0xf6}, {0xcd, 0xe2, 0xfb}}},
+    {"light",
+     {0xfc, 0xfc, 0xfb},
+     {{0xfc, 0xfc, 0xfb}, {0xcd, 0xe2, 0xfb}, {0xb7, 0xd3, 0xf6},
+      {0x9e, 0xc5, 0xf4}, {0x86, 0xb6, 0xef}, {0x6d, 0xa7, 0xec},
+      {0x55, 0x98, 0xe7}, {0x39, 0x87, 0xe5}, {0x2a, 0x78, 0xd6},
+      {0x25, 0x6a, 0xbf}, {0x1c, 0x5c, 0xab}, {0x18, 0x4f, 0x95},
+      {0x10, 0x42, 0x81}, {0x0d, 0x36, 0x6b}}},
+};
+
+const Palette* find_palette(const char* name) {
+    for (const Palette& p : kPalettes)
+        if (std::string(name) == p.name) return &p;
+    return nullptr;
+}
+
+// Map t in [0,1] (0 = silence, 1 = peak energy) onto the palette's ramp.
+uint32_t colormap(const Palette& palette, float t) {
+    int n = static_cast<int>(palette.ramp.size());
     float pos = std::clamp(t, 0.0f, 1.0f) * (n - 1);
     int i = std::min(static_cast<int>(pos), n - 2);
     float frac = pos - i;
     auto lerp = [frac](uint8_t a, uint8_t b) {
         return static_cast<uint32_t>(std::lround(a + (b - a) * frac));
     };
-    return lerp(kRamp[i].r, kRamp[i + 1].r) << 16 |
-           lerp(kRamp[i].g, kRamp[i + 1].g) << 8 |
-           lerp(kRamp[i].b, kRamp[i + 1].b);
+    return lerp(palette.ramp[i].r, palette.ramp[i + 1].r) << 16 |
+           lerp(palette.ramp[i].g, palette.ramp[i + 1].g) << 8 |
+           lerp(palette.ramp[i].b, palette.ramp[i + 1].b);
 }
 
 // Reads a sound file and mixes it down to mono.
@@ -127,7 +148,8 @@ std::vector<float> stft_db(const std::vector<float>& mono, size_t& num_frames, s
 
 // Renders the dB grid at native resolution (one pixel per STFT cell),
 // low frequencies at the bottom.
-cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, size_t num_bins) {
+cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, size_t num_bins,
+                              const Palette& palette) {
     float peak = *std::max_element(db.begin(), db.end());
 
     cairo_surface_t* surface = cairo_image_surface_create(
@@ -141,7 +163,7 @@ cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, s
         size_t bin = num_bins - 1 - y;
         for (size_t x = 0; x < num_frames; ++x) {
             float t = 1.0f + (db[x * num_bins + bin] - peak) / kDynamicRangeDb;
-            row[x] = colormap(t);
+            row[x] = colormap(palette, t);
         }
     }
     cairo_surface_mark_dirty(surface);
@@ -151,14 +173,15 @@ cairo_surface_t* render_cells(const std::vector<float>& db, size_t num_frames, s
 // Composites the spectrogram into the plot rectangle. Decorations (axes,
 // labels, colorbar) belong here, drawn against `layout` and `meta`.
 bool render_image(cairo_surface_t* cells, const Layout& layout, const AudioMeta& meta,
-                  const char* out_path) {
+                  const Palette& palette, const char* out_path) {
     (void)meta;  // reserved for axis labels
 
     cairo_surface_t* surface =
         cairo_image_surface_create(CAIRO_FORMAT_RGB24, layout.width, layout.height);
     cairo_t* cr = cairo_create(surface);
 
-    cairo_set_source_rgb(cr, kSurface.r / 255.0, kSurface.g / 255.0, kSurface.b / 255.0);
+    cairo_set_source_rgb(cr, palette.background.r / 255.0, palette.background.g / 255.0,
+                         palette.background.b / 255.0);
     cairo_paint(cr);
 
     double sx = static_cast<double>(layout.plot_width()) / cairo_image_surface_get_width(cells);
@@ -184,13 +207,36 @@ bool render_image(cairo_surface_t* cells, const Layout& layout, const AudioMeta&
 
 }  // namespace
 
+void print_usage(const char* prog) {
+    std::fprintf(stderr, "usage: %s [-p|--palette <name>] input.wav [output.png]\n", prog);
+    std::fprintf(stderr, "palettes:");
+    for (const Palette& p : kPalettes)
+        std::fprintf(stderr, " %s%s", p.name, &p == &kPalettes.front() ? " (default)" : "");
+    std::fprintf(stderr, "\n");
+}
+
 int main(int argc, char** argv) {
-    if (argc < 2 || argc > 3) {
-        std::fprintf(stderr, "usage: %s input.wav [output.png]\n", argv[0]);
+    const Palette* palette = &kPalettes.front();
+    std::vector<const char*> paths;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-p" || arg == "--palette") {
+            if (++i == argc || !(palette = find_palette(argv[i]))) {
+                std::fprintf(stderr, "error: %s\n",
+                             i == argc ? "missing palette name" : "unknown palette");
+                print_usage(argv[0]);
+                return 2;
+            }
+        } else {
+            paths.push_back(argv[i]);
+        }
+    }
+    if (paths.empty() || paths.size() > 2) {
+        print_usage(argv[0]);
         return 2;
     }
-    const char* in_path = argv[1];
-    std::string out_path = argc == 3 ? argv[2] : "spectrogram.png";
+    const char* in_path = paths[0];
+    std::string out_path = paths.size() == 2 ? paths[1] : "spectrogram.png";
 
     std::vector<float> mono;
     AudioMeta meta;
@@ -204,9 +250,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    cairo_surface_t* cells = render_cells(db, num_frames, num_bins);
+    cairo_surface_t* cells = render_cells(db, num_frames, num_bins, *palette);
     Layout layout;
-    bool ok = render_image(cells, layout, meta, out_path.c_str());
+    bool ok = render_image(cells, layout, meta, *palette, out_path.c_str());
     cairo_surface_destroy(cells);
     if (!ok) return 1;
 
