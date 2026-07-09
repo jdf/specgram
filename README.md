@@ -79,6 +79,11 @@ features with known positions in time and frequency. `make_levels_wav.py`
 writes eight tones stepped 10 dB apart to exercise the color ramp, plus a
 fading tone for the continuous gradient.
 
+## Provenance
+
+Curious how this was built? The whole conversation is in
+[TRANSCRIPT.md](TRANSCRIPT.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
