@@ -1,0 +1,11 @@
+@PACKAGE_INIT@
+
+# specgram is a static library; its private dependencies still need to be
+# resolvable at the consumer's final link.
+include(CMakeFindDependencyMacro)
+find_dependency(KFR CONFIG)
+find_dependency(SndFile CONFIG)
+find_dependency(PkgConfig)
+pkg_check_modules(cairo REQUIRED IMPORTED_TARGET cairo)
+
+include("${CMAKE_CURRENT_LIST_DIR}/specgram-targets.cmake")
