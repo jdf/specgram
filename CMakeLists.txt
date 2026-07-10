@@ -50,8 +50,13 @@ target_link_libraries(specgram_lib PRIVATE
     PkgConfig::cairo
 )
 
-add_executable(specgram src/main.cc)
-target_link_libraries(specgram PRIVATE specgram_lib)
+# The CLI is optional so packaging (e.g. a vcpkg port) can build just the
+# library.
+option(SPECGRAM_BUILD_CLI "Build the specgram command-line tool" ON)
+if(SPECGRAM_BUILD_CLI)
+    add_executable(specgram src/main.cc)
+    target_link_libraries(specgram PRIVATE specgram_lib)
+endif()
 
 # Install rules: library, CLI, and a relocatable CMake package so consumers
 # (including a vcpkg port) can find_package(specgram) and link
@@ -61,7 +66,9 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 install(TARGETS specgram_lib EXPORT specgram-targets)
-install(TARGETS specgram)
+if(SPECGRAM_BUILD_CLI)
+    install(TARGETS specgram)
+endif()
 install(FILES src/dsp.h src/render.h
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/specgram")
 install(EXPORT specgram-targets
