@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "specgram (test.wav)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/specgram",
+      "args": ["-t", "test.wav", "/tmp/specgram-debug.png"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "cmake build (specgram)"
+    }
+  ]
+}
